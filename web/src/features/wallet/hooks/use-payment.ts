@@ -27,6 +27,8 @@ import {
   calculateStripeAmount,
   calculateWaffoAmount,
   calculateWaffoPancakeAmount,
+  calculateKpayAmount,
+  calculateStpayAmount,
   requestPayment,
   requestStripePayment,
   isApiSuccess,
@@ -35,6 +37,8 @@ import {
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
+  isKpayPayment,
+  isStpayPayment,
   submitPaymentForm,
 } from '../lib'
 import type { AmountRequest, AmountResponse } from '../types'
@@ -50,6 +54,8 @@ export interface PaymentAmountCalculators {
   stripe: AmountCalculator
   waffo: AmountCalculator
   waffoPancake: AmountCalculator
+  kpay: AmountCalculator
+  stpay: AmountCalculator
 }
 
 const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
@@ -57,6 +63,8 @@ const defaultPaymentAmountCalculators: PaymentAmountCalculators = {
   stripe: calculateStripeAmount,
   waffo: calculateWaffoAmount,
   waffoPancake: calculateWaffoPancakeAmount,
+  kpay: calculateKpayAmount,
+  stpay: calculateStpayAmount,
 }
 
 export async function requestPaymentAmount(
@@ -71,6 +79,10 @@ export async function requestPaymentAmount(
     calculator = calculators.waffo
   } else if (isWaffoPancakePayment(paymentType)) {
     calculator = calculators.waffoPancake
+  } else if (isKpayPayment(paymentType)) {
+    calculator = calculators.kpay
+  } else if (isStpayPayment(paymentType)) {
+    calculator = calculators.stpay
   }
 
   const response = await calculator({ amount: topupAmount })

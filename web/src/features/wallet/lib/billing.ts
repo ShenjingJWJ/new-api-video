@@ -46,6 +46,10 @@ export const STATUS_CONFIG: Record<TopupStatus, StatusConfig> = {
     variant: 'danger',
     label: 'Expired',
   },
+  failed: {
+    variant: 'danger',
+    label: 'Failed',
+  },
 }
 
 /**
@@ -63,6 +67,10 @@ export const PAYMENT_METHOD_NAMES: Record<string, string> = {
   alipay: 'Alipay',
   wxpay: 'WeChat Pay',
   waffo: 'Waffo',
+  kpay: 'KPay',
+  kpay_tokens: 'KPay',
+  stpay_sbp: 'Russian SBP',
+  stpay_sbp_tokens: 'Russian SBP',
 }
 
 /**
@@ -74,6 +82,14 @@ export function getPaymentMethodName(
 ): string {
   const name = PAYMENT_METHOD_NAMES[method] || method
   return t ? t(name) : name
+}
+
+/**
+ * Records created while the console displays quota as tokens store the token
+ * count in `amount` instead of a currency amount.
+ */
+export function isTokenDenominatedRecord(method: string): boolean {
+  return method.endsWith('_tokens')
 }
 
 /**

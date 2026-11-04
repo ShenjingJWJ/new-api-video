@@ -352,6 +352,44 @@ export type BillingSettings = {
   // section (saved via /api/option/waffo-pancake/save).
   WaffoPancakeStoreID: string
   WaffoPancakeProductID: string
+  KpayEnabled: boolean
+  KpaySandbox: boolean
+  KpayMerchantCode: string
+  KpayAppID: string
+  KpayPrivateKey: string
+  KpayPlatformPublicKey: string
+  KpaySandboxMerchantCode: string
+  KpaySandboxAppID: string
+  KpaySandboxPrivateKey: string
+  KpaySandboxPlatformPublicKey: string
+  KpayUnitPrice: number
+  KpayMinTopUp: number
+  KpayNotifyURL: string
+  KpayReturnURL: string
+  KpayLanguage: string
+  KpayCheckoutMode: string
+  KpayMerchantIcon: string
+  KpayOrderRemark: string
+  KpayPayMethodOrder: string
+  KpayPageFeatureControls: string
+  KpayRateLimitNum: number
+  KpayRateLimitDuration: number
+  KpayReconcileInterval: number
+  StpayEnabled: boolean
+  StpayGateway: string
+  StpayMerNo: string
+  StpayTerNo: string
+  StpayHashKey: string
+  StpayUnitPrice: number
+  StpayMinTopUp: number
+  StpayReturnURL: string
+  StpayNotifyURL: string
+  StpaySiteURL: string
+  StpayCardType: string
+  StpayRateLimitNum: number
+  StpayRateLimitDuration: number
+  StpayRequireQueryConfirm: boolean
+  StpayNotifyIPAllowlist: string
   'checkin_setting.enabled': boolean
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number

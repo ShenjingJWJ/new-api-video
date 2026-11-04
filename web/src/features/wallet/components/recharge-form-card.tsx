@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils'
 
 import {
   formatCurrency,
+  formatPaymentAmount,
   getDiscountLabel,
   getPaymentIcon,
   getMinTopupAmount,
@@ -81,6 +82,8 @@ interface RechargeFormCardProps {
   waffoMinTopup?: number
   onWaffoMethodSelect?: (method: WaffoPayMethod, index: number) => void
   enableWaffoPancakeTopup?: boolean
+  /** Settlement currency of the selected method, when it is not the site one */
+  paymentCurrency?: string
 }
 
 export function RechargeFormCard({
@@ -111,6 +114,7 @@ export function RechargeFormCard({
   waffoMinTopup,
   onWaffoMethodSelect,
   enableWaffoPancakeTopup,
+  paymentCurrency,
 }: RechargeFormCardProps) {
   const { t } = useTranslation()
   const [localAmount, setLocalAmount] = useState(topupAmount.toString())
@@ -134,7 +138,9 @@ export function RechargeFormCard({
     topupInfo?.enable_online_topup ||
     topupInfo?.enable_stripe_topup ||
     enableWaffoTopup ||
-    enableWaffoPancakeTopup
+    enableWaffoPancakeTopup ||
+    topupInfo?.enable_kpay_topup ||
+    topupInfo?.enable_stpay_sbp_topup
   const hasAnyTopup = hasConfigurableTopup || enableCreemTopup
   const hasStandardPaymentMethods =
     Array.isArray(topupInfo?.pay_methods) && topupInfo.pay_methods.length > 0
@@ -316,7 +322,7 @@ export function RechargeFormCard({
                       <Skeleton className='h-5 w-16' />
                     ) : (
                       <span className='text-sm font-semibold'>
-                        {formatCurrency(paymentAmount)}
+                        {formatPaymentAmount(paymentAmount, paymentCurrency)}
                       </span>
                     )}
                   </div>
@@ -353,8 +359,8 @@ export function RechargeFormCard({
                           title={disabledReason}
                           aria-label={
                             disabledReason
-                              ? `${method.name}. ${disabledReason}`
-                              : method.name
+                              ? `${t(method.name)}. ${disabledReason}`
+                              : t(method.name)
                           }
                           className='min-h-14 min-w-0 justify-start gap-2 rounded-lg px-3 py-2 text-left'
                         >
@@ -365,12 +371,12 @@ export function RechargeFormCard({
                               method.type,
                               'h-4 w-4',
                               method.icon,
-                              method.name
+                              t(method.name)
                             )
                           )}
                           <span className='flex min-w-0 flex-col items-start gap-0.5'>
                             <span className='max-w-full truncate'>
-                              {method.name}
+                              {t(method.name)}
                             </span>
                             {disabledLabel && (
                               <span className='text-muted-foreground max-w-full truncate text-[11px] leading-4 font-normal'>

@@ -128,6 +128,45 @@ func InitOptionMap() {
 	common.OptionMap["WaffoPancakeMinTopUp"] = strconv.Itoa(setting.WaffoPancakeMinTopUp)
 	common.OptionMap["WaffoPancakeStoreID"] = setting.WaffoPancakeStoreID
 	common.OptionMap["WaffoPancakeProductID"] = setting.WaffoPancakeProductID
+	common.OptionMap["KpayEnabled"] = strconv.FormatBool(setting.KpayEnabled)
+	common.OptionMap["KpaySandbox"] = strconv.FormatBool(setting.KpaySandbox)
+	common.OptionMap["KpayMerchantCode"] = setting.KpayMerchantCode
+	common.OptionMap["KpayPrivateKey"] = setting.KpayPrivateKey
+	common.OptionMap["KpayPlatformPublicKey"] = setting.KpayPlatformPublicKey
+	common.OptionMap["KpayAppID"] = setting.KpayAppID
+	common.OptionMap["KpaySandboxMerchantCode"] = setting.KpaySandboxMerchantCode
+	common.OptionMap["KpaySandboxPrivateKey"] = setting.KpaySandboxPrivateKey
+	common.OptionMap["KpaySandboxPlatformPublicKey"] = setting.KpaySandboxPlatformPublicKey
+	common.OptionMap["KpaySandboxAppID"] = setting.KpaySandboxAppID
+	common.OptionMap["KpayUnitPrice"] = strconv.FormatFloat(setting.KpayUnitPrice, 'f', -1, 64)
+	common.OptionMap["KpayMinTopUp"] = strconv.Itoa(setting.KpayMinTopUp)
+	common.OptionMap["KpayNotifyURL"] = setting.KpayNotifyURL
+	common.OptionMap["KpayReturnURL"] = setting.KpayReturnURL
+	common.OptionMap["KpayLanguage"] = setting.KpayLanguage
+	common.OptionMap["KpayCheckoutMode"] = setting.KpayCheckoutMode
+	common.OptionMap["KpayMerchantIcon"] = setting.KpayMerchantIcon
+	common.OptionMap["KpayOrderRemark"] = setting.KpayOrderRemark
+	common.OptionMap["KpayPayMethodOrder"] = setting.KpayPayMethodOrder
+	common.OptionMap["KpayPageFeatureControls"] = setting.KpayPageFeatureControls
+	common.OptionMap["KpayRateLimitNum"] = strconv.Itoa(setting.KpayRateLimitNum)
+	common.OptionMap["KpayRateLimitDuration"] = strconv.Itoa(setting.KpayRateLimitDuration)
+	common.OptionMap["KpayReconcileInterval"] = strconv.Itoa(setting.KpayReconcileInterval)
+	common.OptionMap["StpayEnabled"] = strconv.FormatBool(setting.StpayEnabled)
+	common.OptionMap["StpayGateway"] = setting.StpayGateway
+	common.OptionMap["StpayMerNo"] = setting.StpayMerNo
+	common.OptionMap["StpayTerNo"] = setting.StpayTerNo
+	common.OptionMap["StpayHashKey"] = setting.StpayHashKey
+	common.OptionMap["StpayCurrency"] = "RUB"
+	common.OptionMap["StpayUnitPrice"] = strconv.FormatFloat(setting.StpayUnitPrice, 'f', -1, 64)
+	common.OptionMap["StpayMinTopUp"] = strconv.Itoa(setting.StpayMinTopUp)
+	common.OptionMap["StpayReturnURL"] = setting.StpayReturnURL
+	common.OptionMap["StpayNotifyURL"] = setting.StpayNotifyURL
+	common.OptionMap["StpaySiteURL"] = setting.StpaySiteURL
+	common.OptionMap["StpayCardType"] = setting.StpayCardType
+	common.OptionMap["StpayRateLimitNum"] = strconv.Itoa(setting.StpayRateLimitNum)
+	common.OptionMap["StpayRateLimitDuration"] = strconv.Itoa(setting.StpayRateLimitDuration)
+	common.OptionMap["StpayRequireQueryConfirm"] = strconv.FormatBool(setting.StpayRequireQueryConfirm)
+	common.OptionMap["StpayNotifyIPAllowlist"] = setting.StpayNotifyIPAllowlist
 	common.OptionMap["TopupGroupRatio"] = common.TopupGroupRatio2JSONString()
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
@@ -603,6 +642,84 @@ func updateOptionMap(key string, value string) (err error) {
 		setting.WaffoPancakeUnitPrice, _ = strconv.ParseFloat(value, 64)
 	case "WaffoPancakeMinTopUp":
 		setting.WaffoPancakeMinTopUp, _ = strconv.Atoi(value)
+	case "KpayEnabled":
+		setting.KpayEnabled = value == "true"
+	case "KpaySandbox":
+		setting.KpaySandbox = value == "true"
+	case "KpayMerchantCode":
+		setting.KpayMerchantCode = value
+	case "KpayPrivateKey":
+		setting.KpayPrivateKey = value
+	case "KpayPlatformPublicKey":
+		setting.KpayPlatformPublicKey = value
+	case "KpayAppID":
+		setting.KpayAppID = value
+	case "KpaySandboxMerchantCode":
+		setting.KpaySandboxMerchantCode = value
+	case "KpaySandboxPrivateKey":
+		setting.KpaySandboxPrivateKey = value
+	case "KpaySandboxPlatformPublicKey":
+		setting.KpaySandboxPlatformPublicKey = value
+	case "KpaySandboxAppID":
+		setting.KpaySandboxAppID = value
+	case "KpayUnitPrice":
+		setting.KpayUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "KpayMinTopUp":
+		setting.KpayMinTopUp, _ = strconv.Atoi(value)
+	case "KpayNotifyURL":
+		setting.KpayNotifyURL = value
+	case "KpayReturnURL":
+		setting.KpayReturnURL = value
+	case "KpayLanguage":
+		setting.KpayLanguage = value
+	case "KpayCheckoutMode":
+		setting.KpayCheckoutMode = value
+	case "KpayMerchantIcon":
+		setting.KpayMerchantIcon = value
+	case "KpayOrderRemark":
+		setting.KpayOrderRemark = value
+	case "KpayPayMethodOrder":
+		setting.KpayPayMethodOrder = value
+	case "KpayPageFeatureControls":
+		setting.KpayPageFeatureControls = value
+	case "KpayRateLimitNum":
+		setting.KpayRateLimitNum, _ = strconv.Atoi(value)
+	case "KpayRateLimitDuration":
+		setting.KpayRateLimitDuration, _ = strconv.Atoi(value)
+	case "KpayReconcileInterval":
+		setting.KpayReconcileInterval, _ = strconv.Atoi(value)
+	case "StpayEnabled":
+		setting.StpayEnabled = value == "true"
+	case "StpayGateway":
+		setting.StpayGateway = value
+	case "StpayMerNo":
+		setting.StpayMerNo = value
+	case "StpayTerNo":
+		setting.StpayTerNo = value
+	case "StpayHashKey":
+		setting.StpayHashKey = value
+	case "StpayCurrency":
+		// Settlement is always RUB; stored values are ignored.
+	case "StpayUnitPrice":
+		setting.StpayUnitPrice, _ = strconv.ParseFloat(value, 64)
+	case "StpayMinTopUp":
+		setting.StpayMinTopUp, _ = strconv.Atoi(value)
+	case "StpayReturnURL":
+		setting.StpayReturnURL = value
+	case "StpayNotifyURL":
+		setting.StpayNotifyURL = value
+	case "StpaySiteURL":
+		setting.StpaySiteURL = value
+	case "StpayCardType":
+		setting.StpayCardType = value
+	case "StpayRateLimitNum":
+		setting.StpayRateLimitNum, _ = strconv.Atoi(value)
+	case "StpayRateLimitDuration":
+		setting.StpayRateLimitDuration, _ = strconv.Atoi(value)
+	case "StpayRequireQueryConfirm":
+		setting.StpayRequireQueryConfirm = value == "true"
+	case "StpayNotifyIPAllowlist":
+		setting.StpayNotifyIPAllowlist = value
 	case "TopupGroupRatio":
 		err = common.UpdateTopupGroupRatioByJSONString(value)
 	case "GitHubClientId":

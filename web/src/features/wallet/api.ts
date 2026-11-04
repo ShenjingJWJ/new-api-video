@@ -39,6 +39,9 @@ import type {
   WaffoPaymentResponse,
   WaffoPancakePaymentRequest,
   WaffoPancakePaymentResponse,
+  KpayPaymentRequest,
+  StpayPaymentRequest,
+  GatewayCheckoutResponse,
 } from './types'
 
 // ============================================================================
@@ -176,6 +179,73 @@ export async function requestWaffoPancakePayment(
   request: WaffoPancakePaymentRequest
 ): Promise<WaffoPancakePaymentResponse> {
   const res = await api.post('/api/user/waffo-pancake/pay', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Calculate payment amount for KPay payment (HKD)
+ */
+export async function calculateKpayAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/kpay/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request a KPay checkout. Passing plan_id buys a subscription plan instead of
+ * topping up the wallet.
+ */
+export async function requestKpayPayment(
+  request: KpayPaymentRequest
+): Promise<GatewayCheckoutResponse> {
+  const endpoint = request.plan_id
+    ? '/api/subscription/kpay/pay'
+    : '/api/user/kpay/pay'
+  const res = await api.post(endpoint, request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Calculate payment amount for Russian SBP payment (RUB)
+ */
+export async function calculateStpayAmount(
+  request: AmountRequest
+): Promise<AmountResponse> {
+  const res = await api.post('/api/user/stpay/amount', request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Request a Russian SBP checkout. Passing plan_id buys a subscription plan
+ * instead of topping up the wallet.
+ */
+export async function requestStpayPayment(
+  request: StpayPaymentRequest
+): Promise<GatewayCheckoutResponse> {
+  const endpoint = request.plan_id
+    ? '/api/subscription/stpay/pay'
+    : '/api/user/stpay/pay'
+  const res = await api.post(endpoint, request, {
+    skipBusinessError: true,
+  } as Record<string, unknown>)
+  return res.data
+}
+
+/**
+ * Reconcile the caller's unsettled KPay orders, so the balance is up to date
+ * after returning from the hosted checkout.
+ */
+export async function reconcileKpayOrders(): Promise<ApiResponse> {
+  const res = await api.post('/api/user/kpay/reconcile', {}, {
     skipBusinessError: true,
   } as Record<string, unknown>)
   return res.data

@@ -135,6 +135,11 @@ func main() {
 	// Subscription quota reset task (daily/weekly/monthly/custom)
 	service.StartSubscriptionQuotaResetTask()
 
+	// KPay / Russian SBP reconciliation for lost payment notifications
+	controller.StartStpayReconcileTask()
+	controller.StartKpayReconcileTask()
+	controller.WarnStpayConfiguration()
+
 	// Report this process as a system instance so the System Info page can show
 	// all currently alive nodes in multi-instance deployments.
 	service.StartSystemInstanceReporter()

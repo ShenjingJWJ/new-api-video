@@ -1,6 +1,8 @@
 package model
 
 import (
+	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -86,6 +88,108 @@ func getUserQuotaForPaymentGuardTest(t *testing.T, userID int) int {
 	var user User
 	require.NoError(t, DB.Select("quota").Where("id = ?", userID).First(&user).Error)
 	return user.Quota
+}
+
+func TestPaymentGatewayTopUpSettlement(t *testing.T) {
+	for _, provider := range []string{PaymentProviderKpay, PaymentProviderStpay} {
+		for _, status := range []string{common.TopUpStatusPending, common.TopUpStatusFailed, common.TopUpStatusExpired} {
+			t.Run(provider+"/"+status, func(t *testing.T) {
+				truncateTables(t)
+				insertUserForPaymentGuardTest(t, 701, 100)
+				order := &TopUp{
+					UserId: 701, Amount: 2500, Money: 1.23, TradeNo: "topup-" + provider + "-" + status,
+					PaymentProvider: provider, PaymentMethod: PaymentMethodKpayTokens,
+					Status: status, CreateTime: common.GetTimestamp(), KpayQuota: 2500,
+					KpayPaymentFields: KpayPaymentFields{KpayAmount: "1.23", KpayCurrency: "HKD"},
+				}
+				if provider == PaymentProviderStpay {
+					order.PaymentMethod = PaymentMethodStpaySBPTokens
+				}
+				require.NoError(t, order.Insert())
+				fulfill := RechargeKpay
+				if provider == PaymentProviderStpay {
+					fulfill = RechargeStpay
+				}
+				require.NoError(t, fulfill(order.TradeNo, "127.0.0.1"))
+				require.NoError(t, fulfill(order.TradeNo, "127.0.0.1"))
+				assert.Equal(t, 2600, getUserQuotaForPaymentGuardTest(t, 701))
+				assert.Equal(t, common.TopUpStatusSuccess, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
+			})
+		}
+	}
+}
+
+func TestPaymentGatewayTopUpRejectsUnsafeCredit(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		quota   int
+		sandbox bool
+		method  string
+	}{
+		{"wallet limit", common.MaxWalletQuota, false, PaymentMethodKpay},
+		{"invalid quota", -1, false, PaymentMethodKpay},
+		{"sandbox isolation", 2500, true, PaymentMethodKpay},
+		{"provider mismatch", 2500, false, PaymentMethodStpaySBP},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncateTables(t)
+			t.Setenv("KPAY_ALLOW_TEST_NOTIFY", "false")
+			insertUserForPaymentGuardTest(t, 701, 100)
+			order := &TopUp{UserId: 701, Amount: 1, Money: 1, TradeNo: "unsafe-topup", PaymentProvider: PaymentProviderKpay,
+				PaymentMethod: testCase.method, Status: common.TopUpStatusPending, KpayQuota: testCase.quota,
+				KpayPaymentFields: KpayPaymentFields{KpaySandbox: testCase.sandbox}}
+			require.NoError(t, order.Insert())
+			require.Error(t, RechargeKpay(order.TradeNo, "127.0.0.1"))
+			assert.Equal(t, 100, getUserQuotaForPaymentGuardTest(t, 701))
+			assert.Equal(t, common.TopUpStatusPending, getTopUpStatusForPaymentGuardTest(t, order.TradeNo))
+		})
+	}
+}
+
+func TestPaymentGatewaySubscriptionCompletion(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		provider string
+		status   string
+		amount   string
+	}{
+		{"KPay late payment", PaymentProviderKpay, common.TopUpStatusExpired, "77.92"},
+		{"SBP payment", PaymentProviderStpay, common.TopUpStatusPending, "899.10"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			truncateTables(t)
+			insertUserForPaymentGuardTest(t, 702, 0)
+			plan := insertSubscriptionPlanForPaymentGuardTest(t, 703)
+			method := testCase.provider
+			if testCase.provider == PaymentProviderStpay {
+				method = PaymentMethodStpaySBP
+			}
+			order := &SubscriptionOrder{
+				UserId: 702, PlanId: plan.Id, Money: 9.99,
+				TradeNo:         "subscription-" + testCase.provider,
+				PaymentProvider: testCase.provider, PaymentMethod: method,
+				Status: testCase.status, CreateTime: common.GetTimestamp(),
+				StpayAmount:       testCase.amount,
+				KpayPaymentFields: KpayPaymentFields{KpayAmount: testCase.amount, KpayCurrency: "HKD"},
+			}
+			require.NoError(t, order.Insert())
+			require.NoError(t, CreatePendingSubscriptionTopUp(order))
+			require.NoError(t, CreatePendingSubscriptionTopUp(order))
+			originalDB := DB
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			DB = DB.WithContext(ctx)
+			t.Cleanup(func() { DB = originalDB; cancel() })
+			require.NoError(t, CompleteSubscriptionOrder(order.TradeNo, "{}", testCase.provider, method))
+			require.NoError(t, CompleteSubscriptionOrder(order.TradeNo, "{}", testCase.provider, method))
+			require.NoError(t, CreatePendingSubscriptionTopUp(order))
+			assert.EqualValues(t, 1, countUserSubscriptionsForPaymentGuardTest(t, 702))
+			assert.Equal(t, 0, getUserQuotaForPaymentGuardTest(t, 702))
+			bill := GetTopUpByTradeNo(order.TradeNo)
+			require.NotNil(t, bill)
+			assert.Equal(t, common.TopUpStatusSuccess, bill.Status)
+			assert.Equal(t, testCase.amount, fmt.Sprintf("%.2f", bill.Money))
+		})
+	}
 }
 
 func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {

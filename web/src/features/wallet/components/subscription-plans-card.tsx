@@ -71,9 +71,16 @@ interface SubscriptionPlansCardProps {
 }
 
 function getEpayMethods(payMethods: PaymentMethod[] = []): PaymentMethod[] {
-  return payMethods.filter(
-    (m) => m?.type && m.type !== 'stripe' && m.type !== 'creem'
-  )
+  // Gateways with their own purchase button are not epay channels.
+  const dedicated = new Set([
+    'stripe',
+    'creem',
+    'waffo',
+    'waffo_pancake',
+    'kpay',
+    'stpay_sbp',
+  ])
+  return payMethods.filter((m) => m?.type && !dedicated.has(m.type))
 }
 
 function getBillingPreferenceLabel(
@@ -647,6 +654,10 @@ export function SubscriptionPlansCard({
         enableCreem={enableCreem}
         enableWaffoPancake={enableWaffoPancake}
         enableOnlineTopUp={enableOnlineTopUp}
+        enableKpay={!!topupInfo?.enable_kpay_topup}
+        kpayUnitPrice={topupInfo?.kpay_unit_price}
+        enableStpay={!!topupInfo?.enable_stpay_sbp_topup}
+        stpayUnitPrice={topupInfo?.stpay_unit_price}
         epayMethods={epayMethods}
         userQuota={userQuota}
         onPurchaseSuccess={onPurchaseSuccess}

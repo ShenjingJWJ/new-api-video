@@ -61,6 +61,16 @@ export type WaffoPancakePaymentResponse = ApiResponse<
 >
 
 /**
+ * Hosted checkout response shared by KPay and Russian SBP
+ */
+export type GatewayCheckoutResponse = ApiResponse<{
+  payment_url?: string
+  order_id?: string
+  amount?: string
+  currency?: string
+}>
+
+/**
  * Creem product configuration
  */
 export interface CreemProduct {
@@ -150,6 +160,22 @@ export interface TopupInfo {
   enable_waffo_pancake_topup?: boolean
   /** Minimum topup amount for Waffo Pancake */
   waffo_pancake_min_topup?: number
+  /** Whether Russian SBP topup is enabled */
+  enable_stpay_sbp_topup?: boolean
+  /** Minimum topup amount for Russian SBP */
+  stpay_min_topup?: number
+  /** RUB charged per topup unit */
+  stpay_unit_price?: number
+  /** Settlement currency of Russian SBP (always RUB) */
+  stpay_currency?: string
+  /** Whether KPay topup is enabled */
+  enable_kpay_topup?: boolean
+  /** Minimum topup amount for KPay */
+  kpay_min_topup?: number
+  /** HKD charged per topup unit */
+  kpay_unit_price?: number
+  /** Settlement currency of KPay (always HKD) */
+  kpay_currency?: string
   /** Whether redemption code usage is enabled */
   enable_redemption?: boolean
   /** Whether compliance confirmation has been completed */
@@ -205,6 +231,29 @@ export interface WaffoPancakePaymentRequest {
 }
 
 /**
+ * KPay checkout request parameters. Exactly one of amount (wallet top-up) or
+ * plan_id (subscription purchase) is sent.
+ */
+export interface KpayPaymentRequest {
+  /** Topup amount */
+  amount?: number
+  /** Subscription plan to purchase */
+  plan_id?: number
+  /** Checkout page language (zh_CN, zh_HK or en_US) */
+  language?: string
+}
+
+/**
+ * Russian SBP checkout request parameters
+ */
+export interface StpayPaymentRequest {
+  /** Topup amount */
+  amount?: number
+  /** Subscription plan to purchase */
+  plan_id?: number
+}
+
+/**
  * Amount calculation request
  */
 export interface AmountRequest {
@@ -247,7 +296,7 @@ export interface UserWalletData {
 /**
  * Topup record status
  */
-export type TopupStatus = 'success' | 'pending' | 'expired'
+export type TopupStatus = 'success' | 'pending' | 'expired' | 'failed'
 
 /**
  * Topup billing record

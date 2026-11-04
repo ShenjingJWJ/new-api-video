@@ -64,6 +64,31 @@ export function formatCurrency(amount: number | string): string {
 }
 
 /**
+ * Symbols of the gateway currencies that settle outside the site currency.
+ */
+const PAYMENT_CURRENCY_SYMBOLS: Record<string, string> = {
+  HKD: 'HK$',
+  RUB: '₽',
+}
+
+/**
+ * Format an amount a gateway charges. KPay settles in HKD and Russian SBP in
+ * RUB, so those amounts carry their own symbol and code instead of being read
+ * as the site currency.
+ */
+export function formatPaymentAmount(
+  amount: number | string,
+  currency?: string
+): string {
+  const formatted = formatCurrency(amount)
+  const symbol = currency ? PAYMENT_CURRENCY_SYMBOLS[currency] : undefined
+  if (!currency || !symbol) {
+    return formatted
+  }
+  return `${symbol}${formatted} ${currency}`
+}
+
+/**
  * Get discount label for display (e.g., "20% OFF")
  */
 export function getDiscountLabel(discount: number, t: TFunction): string {

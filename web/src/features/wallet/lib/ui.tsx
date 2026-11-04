@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import i18next from 'i18next'
-import { CreditCard, Landmark } from 'lucide-react'
+import { CreditCard, Landmark, QrCode } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { IconAlipay, IconWeChat, IconStripe } from '@/assets/brand-icons'
@@ -153,6 +153,22 @@ export function getPaymentIcon(
             className='hidden h-full w-full object-contain dark:block'
           />
         </span>
+      )
+    case PAYMENT_TYPES.STPAY:
+      return (
+        <QrCode
+          className={className}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.STPAY] }}
+        />
+      )
+    case PAYMENT_TYPES.KPAY:
+      return (
+        <ReactIconByName
+          name='TbLetterK'
+          className={className}
+          title={altName || 'KPay'}
+          style={{ color: PAYMENT_ICON_COLORS[PAYMENT_TYPES.KPAY] }}
+        />
       )
     default:
       return <CreditCard className={className} />

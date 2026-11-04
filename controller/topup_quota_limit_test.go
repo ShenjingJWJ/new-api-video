@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -17,6 +19,64 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestPaymentGatewayQuotesPreserveUnitsAndRejectUnsafeAmounts(t *testing.T) {
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalDisplay := operation_setting.GetGeneralSetting().QuotaDisplayType
+	originalKpayPrice, originalStpayPrice := setting.KpayUnitPrice, setting.StpayUnitPrice
+	common.QuotaPerUnit = 500000
+	t.Cleanup(func() {
+		common.QuotaPerUnit = originalQuotaPerUnit
+		operation_setting.GetGeneralSetting().QuotaDisplayType = originalDisplay
+		setting.KpayUnitPrice, setting.StpayUnitPrice = originalKpayPrice, originalStpayPrice
+	})
+	for _, gateway := range []struct {
+		name   string
+		quote  func(int64, string) (string, int, string, error)
+		method string
+		price  float64
+		amount string
+	}{
+		{"KPay", kpayQuote, model.PaymentMethodKpay, 7.8, "15.60"},
+		{"SBP", stpayQuote, model.PaymentMethodStpaySBP, 90, "180.00"},
+	} {
+		for _, testCase := range []struct {
+			name      string
+			requested int64
+			display   string
+			price     float64
+			wantError bool
+		}{
+			{"currency units", 2, operation_setting.QuotaDisplayTypeUSD, gateway.price, false},
+			{"token units", 1000000, operation_setting.QuotaDisplayTypeTokens, gateway.price, false},
+			{"negative amount", -1, operation_setting.QuotaDisplayTypeUSD, gateway.price, true},
+			{"zero amount", 0, operation_setting.QuotaDisplayTypeUSD, gateway.price, true},
+			{"quota overflow", math.MaxInt64, operation_setting.QuotaDisplayTypeUSD, gateway.price, true},
+			{"NaN price", 2, operation_setting.QuotaDisplayTypeUSD, math.NaN(), true},
+			{"infinite price", 2, operation_setting.QuotaDisplayTypeUSD, math.Inf(1), true},
+		} {
+			t.Run(gateway.name+"/"+testCase.name, func(t *testing.T) {
+				operation_setting.GetGeneralSetting().QuotaDisplayType = testCase.display
+				setting.KpayUnitPrice, setting.StpayUnitPrice = testCase.price, testCase.price
+				amount, quota, method, err := gateway.quote(testCase.requested, "gateway-quote-test")
+				if testCase.wantError {
+					require.Error(t, err)
+					assert.Zero(t, quota)
+					assert.Empty(t, amount)
+					return
+				}
+				require.NoError(t, err)
+				assert.Equal(t, gateway.amount, amount)
+				assert.Equal(t, 1000000, quota)
+				expectedMethod := gateway.method
+				if testCase.display == operation_setting.QuotaDisplayTypeTokens {
+					expectedMethod += "_tokens"
+				}
+				assert.Equal(t, expectedMethod, method)
+			})
+		}
+	}
+}
 
 func TestTopUpQuotaValidation(t *testing.T) {
 	oldQuotaPerUnit := common.QuotaPerUnit

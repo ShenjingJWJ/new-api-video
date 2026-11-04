@@ -178,6 +178,48 @@ const BILLING_SECTIONS = [
         }}
         waffoPancakeProvisionedStoreID={settings.WaffoPancakeStoreID ?? ''}
         waffoPancakeProvisionedProductID={settings.WaffoPancakeProductID ?? ''}
+        kpayDefaultValues={{
+          KpayEnabled: settings.KpayEnabled,
+          KpaySandbox: settings.KpaySandbox,
+          KpayMerchantCode: settings.KpayMerchantCode,
+          KpayAppID: settings.KpayAppID,
+          KpayPrivateKey: settings.KpayPrivateKey,
+          KpayPlatformPublicKey: settings.KpayPlatformPublicKey,
+          KpaySandboxMerchantCode: settings.KpaySandboxMerchantCode,
+          KpaySandboxAppID: settings.KpaySandboxAppID,
+          KpaySandboxPrivateKey: settings.KpaySandboxPrivateKey,
+          KpaySandboxPlatformPublicKey: settings.KpaySandboxPlatformPublicKey,
+          KpayUnitPrice: settings.KpayUnitPrice,
+          KpayMinTopUp: settings.KpayMinTopUp,
+          KpayNotifyURL: settings.KpayNotifyURL,
+          KpayReturnURL: settings.KpayReturnURL,
+          KpayLanguage: settings.KpayLanguage,
+          KpayCheckoutMode: settings.KpayCheckoutMode,
+          KpayMerchantIcon: settings.KpayMerchantIcon,
+          KpayOrderRemark: settings.KpayOrderRemark,
+          KpayPayMethodOrder: settings.KpayPayMethodOrder,
+          KpayPageFeatureControls: settings.KpayPageFeatureControls,
+          KpayRateLimitNum: settings.KpayRateLimitNum,
+          KpayRateLimitDuration: settings.KpayRateLimitDuration,
+          KpayReconcileInterval: settings.KpayReconcileInterval,
+        }}
+        stpayDefaultValues={{
+          StpayEnabled: settings.StpayEnabled,
+          StpayGateway: settings.StpayGateway,
+          StpayMerNo: settings.StpayMerNo,
+          StpayTerNo: settings.StpayTerNo,
+          StpayHashKey: settings.StpayHashKey,
+          StpayUnitPrice: settings.StpayUnitPrice,
+          StpayMinTopUp: settings.StpayMinTopUp,
+          StpayReturnURL: settings.StpayReturnURL,
+          StpayNotifyURL: settings.StpayNotifyURL,
+          StpaySiteURL: settings.StpaySiteURL,
+          StpayCardType: settings.StpayCardType,
+          StpayRateLimitNum: settings.StpayRateLimitNum,
+          StpayRateLimitDuration: settings.StpayRateLimitDuration,
+          StpayRequireQueryConfirm: settings.StpayRequireQueryConfirm,
+          StpayNotifyIPAllowlist: settings.StpayNotifyIPAllowlist,
+        }}
         complianceDefaults={{
           confirmed: settings['payment_setting.compliance_confirmed'] ?? false,
           termsVersion:

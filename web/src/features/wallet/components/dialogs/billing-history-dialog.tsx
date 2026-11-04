@@ -46,12 +46,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { formatCurrencyFromUSD } from '@/lib/currency'
-import { formatNumber } from '@/lib/format'
 
 import { useBillingHistory } from '../../hooks/use-billing-history'
+import { formatPaymentAmount, getPaymentCurrency } from '../../lib'
 import {
   getStatusConfig,
   getPaymentMethodName,
+  isTokenDenominatedRecord,
   formatTimestamp,
 } from '../../lib/billing'
 
@@ -248,11 +249,13 @@ export function BillingHistoryDialog({
                             {t('Amount')}
                           </Label>
                           <div className='text-sm font-semibold'>
-                            {formatCurrencyFromUSD(record.amount, {
-                              digitsLarge: 2,
-                              digitsSmall: 2,
-                              abbreviate: false,
-                            })}
+                            {isTokenDenominatedRecord(record.payment_method)
+                              ? t('{{count}} Token', { count: record.amount })
+                              : formatCurrencyFromUSD(record.amount, {
+                                  digitsLarge: 2,
+                                  digitsSmall: 2,
+                                  abbreviate: false,
+                                })}
                           </div>
                         </div>
                         <div className='space-y-1'>
@@ -260,7 +263,10 @@ export function BillingHistoryDialog({
                             {t('Payment')}
                           </Label>
                           <div className='text-sm font-semibold text-red-600'>
-                            {formatNumber(record.money)}
+                            {formatPaymentAmount(
+                              record.money,
+                              getPaymentCurrency(record.payment_method)
+                            )}
                           </div>
                         </div>
                       </div>

@@ -33,7 +33,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatLocalCurrencyAmount } from '@/lib/currency'
 
 import { DEFAULT_DISCOUNT_RATE } from '../../constants'
-import { formatCurrency, getPaymentIcon } from '../../lib'
+import {
+  formatCurrency,
+  formatPaymentAmount,
+  getPaymentCurrency,
+  getPaymentIcon,
+} from '../../lib'
 import type { PaymentMethod } from '../../types'
 
 interface PaymentConfirmDialogProps {
@@ -62,7 +67,14 @@ export function PaymentConfirmDialog({
   usdExchangeRate = 1,
 }: PaymentConfirmDialogProps) {
   const { t } = useTranslation()
-  const hasDiscount = discountRate > 0 && discountRate < 1 && paymentAmount > 0
+  // KPay and Russian SBP quote in their own currency, where a site-level
+  // discount no longer describes the amount charged.
+  const paymentCurrency = getPaymentCurrency(paymentMethod?.type ?? '')
+  const hasDiscount =
+    !paymentCurrency &&
+    discountRate > 0 &&
+    discountRate < 1 &&
+    paymentAmount > 0
   const originalAmount = hasDiscount ? paymentAmount / discountRate : 0
   const discountAmount = hasDiscount ? originalAmount - paymentAmount : 0
 
@@ -101,7 +113,7 @@ export function PaymentConfirmDialog({
             ) : (
               <div className='flex items-baseline gap-2'>
                 <span className='text-2xl font-semibold'>
-                  {formatCurrency(paymentAmount)}
+                  {formatPaymentAmount(paymentAmount, paymentCurrency)}
                 </span>
                 {hasDiscount && (
                   <span className='text-muted-foreground text-sm line-through'>
@@ -133,9 +145,11 @@ export function PaymentConfirmDialog({
                   paymentMethod?.type,
                   'h-4 w-4',
                   paymentMethod?.icon,
-                  paymentMethod?.name
+                  paymentMethod?.name ? t(paymentMethod.name) : undefined
                 )}
-                <span className='font-medium'>{paymentMethod?.name}</span>
+                <span className='font-medium'>
+                  {paymentMethod?.name ? t(paymentMethod.name) : null}
+                </span>
               </div>
             </div>
           </div>
@@ -145,7 +159,10 @@ export function PaymentConfirmDialog({
           <AlertDialogCancel disabled={processing}>
             {t('Cancel')}
           </AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm} disabled={processing}>
+          <AlertDialogAction
+            onClick={onConfirm}
+            disabled={processing || calculating || paymentAmount <= 0}
+          >
             {processing && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Confirm Payment')}
           </AlertDialogAction>

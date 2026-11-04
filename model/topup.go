@@ -23,14 +23,25 @@ type TopUp struct {
 	CreateTime      int64   `json:"create_time"`
 	CompleteTime    int64   `json:"complete_time"`
 	Status          string  `json:"status"`
+
+	// StpayTradeNo is the SBP provider's transaction number, required by
+	// notification checks and order queries.
+	StpayTradeNo string `json:"-" gorm:"type:varchar(255);default:''"`
+	// KpayQuota is the wallet quota snapshotted when the KPay order was quoted.
+	KpayQuota int `json:"-"`
+	KpayPaymentFields
 }
 
 const (
-	PaymentMethodStripe       = "stripe"
-	PaymentMethodCreem        = "creem"
-	PaymentMethodWaffo        = "waffo"
-	PaymentMethodWaffoPancake = "waffo_pancake"
-	PaymentMethodBalance      = "balance"
+	PaymentMethodStripe         = "stripe"
+	PaymentMethodCreem          = "creem"
+	PaymentMethodWaffo          = "waffo"
+	PaymentMethodWaffoPancake   = "waffo_pancake"
+	PaymentMethodBalance        = "balance"
+	PaymentMethodStpaySBP       = "stpay_sbp"
+	PaymentMethodStpaySBPTokens = "stpay_sbp_tokens"
+	PaymentMethodKpay           = "kpay"
+	PaymentMethodKpayTokens     = "kpay_tokens"
 )
 
 const (
@@ -40,6 +51,8 @@ const (
 	PaymentProviderWaffo        = "waffo"
 	PaymentProviderWaffoPancake = "waffo_pancake"
 	PaymentProviderBalance      = "balance"
+	PaymentProviderStpay        = "stpay"
+	PaymentProviderKpay         = "kpay"
 )
 
 var (
@@ -478,15 +491,38 @@ func ManualCompleteTopUp(tradeNo string, callerIp string) error {
 			return common.NewMessage("Order is not pending payment and cannot be completed")
 		}
 
+		// A subscription bill row has Amount=0 and only CompleteSubscriptionOrder
+		// grants the plan, so completing it here would show success without one.
+		var subscriptionOrders int64
+		if err := tx.Model(&SubscriptionOrder{}).Where(refCol+" = ?", topUp.TradeNo).Count(&subscriptionOrders).Error; err != nil {
+			return err
+		}
+		if subscriptionOrders > 0 {
+			return common.NewMessage("Subscription orders cannot be completed manually")
+		}
+
 		// 计算应充值额度：
 		// - Stripe 订单：Money 代表经分组倍率换算后的美元数量，直接 * QuotaPerUnit
+		// - KPay 订单：下单时快照的额度
+		// - 俄罗斯 SBP 订单：见 stpayCreditQuota
 		// - 其他订单（如易支付）：Amount 为美元数量，* QuotaPerUnit
 		var quotaErr error
-		if topUp.PaymentProvider == PaymentProviderStripe {
+		switch topUp.PaymentProvider {
+		case PaymentProviderStripe:
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)
-		} else {
+		case PaymentProviderKpay:
+			if err := topUp.KpayPaymentFields.ValidateCreditEnvironment(); err != nil {
+				return err
+			}
+			if topUp.PaymentMethod != PaymentMethodKpay && topUp.PaymentMethod != PaymentMethodKpayTokens {
+				return ErrPaymentMethodMismatch
+			}
+			quotaToAdd = topUp.KpayQuota
+		case PaymentProviderStpay:
+			quotaToAdd, quotaErr = stpayCreditQuota(topUp)
+		default:
 			quotaToAdd, quotaErr = common.WalletQuotaFromDecimalStrict(
 				decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)),
 			)

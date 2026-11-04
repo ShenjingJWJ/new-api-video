@@ -24,6 +24,7 @@ import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { getSelf } from '@/lib/api'
 
+import { reconcileKpayOrders } from './api'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
@@ -41,10 +42,13 @@ import {
   useCreemPayment,
   useWaffoPayment,
   useWaffoPancakePayment,
+  useKpayPayment,
+  useStpayPayment,
 } from './hooks'
 import {
   getDefaultPaymentType,
   getMinTopupAmount,
+  getPaymentCurrency,
   dispatchSelectedPayment,
 } from './lib'
 import type {
@@ -108,6 +112,8 @@ export function Wallet(props: WalletProps) {
   const { processing: waffoProcessing, processWaffoPayment } = useWaffoPayment()
   const { processing: pancakeProcessing, processWaffoPancakePayment } =
     useWaffoPancakePayment()
+  const { processing: kpayProcessing, processKpayPayment } = useKpayPayment()
+  const { processing: stpayProcessing, processStpayPayment } = useStpayPayment()
 
   // Fetch and refresh user data
   const fetchUser = useCallback(async () => {
@@ -130,11 +136,25 @@ export function Wallet(props: WalletProps) {
   }, [fetchUser])
 
   useEffect(() => {
-    if (props.initialShowHistory) {
-      setBillingDialogOpen(true)
-      window.history.replaceState({}, '', window.location.pathname)
+    if (!props.initialShowHistory) return
+    setBillingDialogOpen(true)
+    window.history.replaceState({}, '', window.location.pathname)
+    // Returning from a hosted checkout: settle anything the notification
+    // missed before the balance and the history are read.
+    void reconcileKpayOrders()
+      .catch(() => undefined)
+      .then(fetchUser)
+  }, [props.initialShowHistory, fetchUser])
+
+  // A payment completes in another tab or window, so the balance is refreshed
+  // whenever this page regains focus.
+  useEffect(() => {
+    const handleFocus = () => {
+      void fetchUser()
     }
-  }, [props.initialShowHistory])
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [fetchUser])
 
   // Initialize topup amount when topup info is loaded
   const topupAmountInitializedRef = useRef(false)
@@ -154,6 +174,10 @@ export function Wallet(props: WalletProps) {
   const getCurrentPaymentType = useCallback(() => {
     return selectedPaymentMethod?.type || getDefaultPaymentType(topupInfo)
   }, [selectedPaymentMethod, topupInfo])
+
+  // KPay charges in HKD and Russian SBP in RUB, so the quoted amount is not
+  // in the site currency for those methods.
+  const paymentCurrency = getPaymentCurrency(getCurrentPaymentType())
 
   // Handle preset selection
   const handleSelectPreset = (preset: PresetAmount) => {
@@ -202,6 +226,8 @@ export function Wallet(props: WalletProps) {
         regular: processPayment,
         waffo: processWaffoPayment,
         waffoPancake: processWaffoPancakePayment,
+        kpay: (amount) => processKpayPayment({ amount: Math.floor(amount) }),
+        stpay: (amount) => processStpayPayment({ amount: Math.floor(amount) }),
       }
     )
 
@@ -328,6 +354,7 @@ export function Wallet(props: WalletProps) {
                   enableWaffoPancakeTopup={
                     topupInfo?.enable_waffo_pancake_topup
                   }
+                  paymentCurrency={paymentCurrency}
                 />
               </div>
 
@@ -360,7 +387,13 @@ export function Wallet(props: WalletProps) {
         paymentAmount={paymentAmount}
         paymentMethod={selectedPaymentMethod}
         calculating={calculating}
-        processing={processing || waffoProcessing || pancakeProcessing}
+        processing={
+          processing ||
+          waffoProcessing ||
+          pancakeProcessing ||
+          kpayProcessing ||
+          stpayProcessing
+        }
         discountRate={getDiscountRate()}
         usdExchangeRate={effectiveUsdExchangeRate}
       />

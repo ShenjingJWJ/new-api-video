@@ -3,6 +3,7 @@ package model
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/samber/hot"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Subscription duration units
@@ -225,6 +227,13 @@ type SubscriptionOrder struct {
 	CompleteTime    int64  `json:"complete_time"`
 
 	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
+
+	// StpayTradeNo is the SBP provider's transaction number.
+	StpayTradeNo string `json:"-" gorm:"type:varchar(255);default:''"`
+	// StpayAmount is the RUB amount quoted to the provider. The plan is priced
+	// in USD and the RUB rate can change, so checks use this snapshot.
+	StpayAmount string `json:"-" gorm:"type:varchar(32);default:''"`
+	KpayPaymentFields
 }
 
 func (o *SubscriptionOrder) Insert() error {
@@ -502,7 +511,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 			return nil, common.NewMessage("Purchase limit for this plan has been reached")
 		}
 	}
-	nowUnix := GetDBTimestamp()
+	nowUnix := getDBTimestampTx(tx)
 	now := time.Unix(nowUnix, 0)
 	endUnix, err := calcPlanEndTime(now, plan)
 	if err != nil {
@@ -590,10 +599,24 @@ func CompleteSubscriptionOrder(tradeNo string, providerPayload string, expectedP
 		if order.Status == common.TopUpStatusSuccess {
 			return nil
 		}
-		if order.Status != common.TopUpStatusPending {
+		if order.PaymentProvider == PaymentProviderKpay {
+			if order.PaymentMethod != PaymentMethodKpay || (actualPaymentMethod != "" && actualPaymentMethod != PaymentMethodKpay) {
+				return ErrPaymentMethodMismatch
+			}
+			if err := order.KpayPaymentFields.ValidateCreditEnvironment(); err != nil {
+				return err
+			}
+		}
+		// A KPay managed order may be paid after a failed attempt or after the
+		// local display state expired; other providers only complete pending.
+		allowedStatuses := []string{common.TopUpStatusPending}
+		if order.PaymentProvider == PaymentProviderKpay {
+			allowedStatuses = kpayRetryableStatuses
+		}
+		if !slices.Contains(allowedStatuses, order.Status) {
 			return ErrSubscriptionOrderStatusInvalid
 		}
-		plan, err := GetSubscriptionPlanById(order.PlanId)
+		plan, err := getSubscriptionPlanByIdTx(tx, order.PlanId)
 		if err != nil {
 			return err
 		}
@@ -654,24 +677,27 @@ func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
 		return errors.New("invalid subscription order")
 	}
 	now := common.GetTimestamp()
+	billMoney := subscriptionBillMoney(order)
 	var topup TopUp
 	if err := tx.Where("trade_no = ?", order.TradeNo).First(&topup).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			topup = TopUp{
-				UserId:        order.UserId,
-				Amount:        0,
-				Money:         order.Money,
-				TradeNo:       order.TradeNo,
-				PaymentMethod: order.PaymentMethod,
-				CreateTime:    order.CreateTime,
-				CompleteTime:  now,
-				Status:        common.TopUpStatusSuccess,
+				UserId:            order.UserId,
+				Amount:            0,
+				Money:             billMoney,
+				TradeNo:           order.TradeNo,
+				PaymentMethod:     order.PaymentMethod,
+				CreateTime:        order.CreateTime,
+				CompleteTime:      now,
+				Status:            common.TopUpStatusSuccess,
+				KpayPaymentFields: order.KpayPaymentFields,
 			}
 			return tx.Create(&topup).Error
 		}
 		return err
 	}
-	topup.Money = order.Money
+	topup.Money = billMoney
+	topup.KpayPaymentFields = order.KpayPaymentFields
 	if topup.PaymentMethod == "" {
 		topup.PaymentMethod = order.PaymentMethod
 	} else if topup.PaymentMethod != order.PaymentMethod {
@@ -683,6 +709,55 @@ func upsertSubscriptionTopUpTx(tx *gorm.DB, order *SubscriptionOrder) error {
 	topup.CompleteTime = now
 	topup.Status = common.TopUpStatusSuccess
 	return tx.Save(&topup).Error
+}
+
+// subscriptionBillMoney is the paid amount shown on a subscription bill row.
+// The billing history labels SBP rows in RUB and KPay rows in HKD, so those
+// rows record the amount quoted to the provider instead of the USD plan price.
+func subscriptionBillMoney(order *SubscriptionOrder) float64 {
+	quoted := ""
+	switch order.PaymentProvider {
+	case PaymentProviderStpay:
+		quoted = order.StpayAmount
+	case PaymentProviderKpay:
+		quoted = order.KpayAmount
+	}
+	if amount, err := strconv.ParseFloat(strings.TrimSpace(quoted), 64); err == nil && amount > 0 {
+		return amount
+	}
+	return order.Money
+}
+
+// CreatePendingSubscriptionTopUp adds a pending bill row once the user has a
+// payable checkout, so the order appears in billing history before payment.
+// The row deliberately has no payment_provider: SBP notifications route an
+// order to the subscription branch when its top_ups row is not an SBP top-up.
+func CreatePendingSubscriptionTopUp(order *SubscriptionOrder) error {
+	if order == nil || order.UserId <= 0 || strings.TrimSpace(order.TradeNo) == "" {
+		return errors.New("invalid subscription order")
+	}
+	bill := TopUp{
+		UserId:            order.UserId,
+		Amount:            0,
+		Money:             subscriptionBillMoney(order),
+		TradeNo:           order.TradeNo,
+		PaymentMethod:     order.PaymentMethod,
+		CreateTime:        order.CreateTime,
+		Status:            common.TopUpStatusPending,
+		KpayPaymentFields: order.KpayPaymentFields,
+	}
+	return DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&bill).Error
+}
+
+// ExpirePendingSubscriptionTopUps marks stale pending subscription bill rows
+// expired for display only. The subscription orders stay pending so a late
+// payment can still complete them.
+func ExpirePendingSubscriptionTopUps(beforeCreateTime int64) (int64, error) {
+	result := DB.Model(&TopUp{}).
+		Where("amount = ? AND status = ? AND create_time < ? AND payment_provider = ?", 0, common.TopUpStatusPending, beforeCreateTime, "").
+		Where("LOWER(trade_no) LIKE ?", "sub%").
+		Update("status", common.TopUpStatusExpired)
+	return result.RowsAffected, result.Error
 }
 
 func ExpireSubscriptionOrder(tradeNo string, expectedPaymentProvider string) error {

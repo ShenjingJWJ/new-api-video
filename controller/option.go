@@ -199,6 +199,29 @@ func UpdateOption(c *gin.Context) {
 	default:
 		option.Value = fmt.Sprintf("%v", option.Value)
 	}
+	if strings.HasPrefix(option.Key, "Kpay") || strings.HasPrefix(option.Key, "Stpay") {
+		value := option.Value.(string)
+		if option.Key == "StpayHashKey" {
+			value = strings.TrimSpace(value)
+			option.Value = value
+		}
+		var validateErr error
+		if strings.HasPrefix(option.Key, "Kpay") {
+			validateErr = validateKpayOption(option.Key, value)
+		} else {
+			validateErr = validateStpayOption(option.Key, value)
+		}
+		if validateErr != nil {
+			common.ApiError(c, validateErr)
+			return
+		}
+		// The settings page never receives stored keys, so an empty key keeps
+		// the current value instead of erasing the merchant credentials.
+		if strings.HasSuffix(option.Key, "Key") && strings.TrimSpace(value) == "" {
+			common.ApiSuccess(c, nil)
+			return
+		}
+	}
 	switch option.Key {
 	case "QuotaForInviter", "QuotaForInvitee":
 		if isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {

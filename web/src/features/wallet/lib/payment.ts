@@ -20,6 +20,7 @@ import { getServerMessage } from '@/lib/server-error-message'
 
 import {
   PAYMENT_TYPES,
+  PAYMENT_CURRENCIES,
   DEFAULT_PRESET_MULTIPLIERS,
   DEFAULT_PAYMENT_TYPE,
   DEFAULT_MIN_TOPUP,
@@ -111,10 +112,34 @@ export function isWaffoPancakePayment(paymentType: string): boolean {
   return paymentType === PAYMENT_TYPES.WAFFO_PANCAKE
 }
 
+/**
+ * Check if payment method is KPay, the HKD hosted checkout
+ */
+export function isKpayPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.KPAY
+}
+
+/**
+ * Check if payment method is Russian SBP, which settles in RUB
+ */
+export function isStpayPayment(paymentType: string): boolean {
+  return paymentType === PAYMENT_TYPES.STPAY
+}
+
+/**
+ * Settlement currency of a payment method, or undefined when it settles in the
+ * site's own currency.
+ */
+export function getPaymentCurrency(paymentType: string): string | undefined {
+  return PAYMENT_CURRENCIES[paymentType]
+}
+
 export interface PaymentProcessors {
   regular: (topupAmount: number, paymentType: string) => Promise<boolean>
   waffo: (topupAmount: number, payMethodIndex: number) => Promise<boolean>
   waffoPancake: (topupAmount: number) => Promise<boolean>
+  kpay: (topupAmount: number) => Promise<boolean>
+  stpay: (topupAmount: number) => Promise<boolean>
 }
 
 export async function dispatchSelectedPayment(
@@ -132,6 +157,14 @@ export async function dispatchSelectedPayment(
 
   if (isWaffoPancakePayment(paymentMethod.type)) {
     return processors.waffoPancake(topupAmount)
+  }
+
+  if (isKpayPayment(paymentMethod.type)) {
+    return processors.kpay(topupAmount)
+  }
+
+  if (isStpayPayment(paymentMethod.type)) {
+    return processors.stpay(topupAmount)
   }
 
   return processors.regular(topupAmount, paymentMethod.type)
@@ -162,6 +195,14 @@ export function getDefaultPaymentType(topupInfo: TopupInfo | null): string {
     return PAYMENT_TYPES.WAFFO_PANCAKE
   }
 
+  if (topupInfo.enable_kpay_topup) {
+    return PAYMENT_TYPES.KPAY
+  }
+
+  if (topupInfo.enable_stpay_sbp_topup) {
+    return PAYMENT_TYPES.STPAY
+  }
+
   return DEFAULT_PAYMENT_TYPE
 }
 
@@ -187,6 +228,14 @@ export function getMinTopupAmount(topupInfo: TopupInfo | null): number {
 
   if (topupInfo.enable_waffo_pancake_topup) {
     return topupInfo.waffo_pancake_min_topup || DEFAULT_MIN_TOPUP
+  }
+
+  if (topupInfo.enable_kpay_topup) {
+    return topupInfo.kpay_min_topup || DEFAULT_MIN_TOPUP
+  }
+
+  if (topupInfo.enable_stpay_sbp_topup) {
+    return topupInfo.stpay_min_topup || DEFAULT_MIN_TOPUP
   }
 
   return DEFAULT_MIN_TOPUP

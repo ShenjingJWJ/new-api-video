@@ -21,6 +21,7 @@ import { describe, expect, test } from 'vitest'
 import { PAYMENT_TYPES } from '../constants'
 import {
   dispatchSelectedPayment,
+  getPaymentCurrency,
   isStripePayment,
   isWaffoPayment,
   isWaffoPancakePayment,
@@ -34,29 +35,47 @@ describe('payment type classification', () => {
     expect(isWaffoPancakePayment(PAYMENT_TYPES.WAFFO)).toBe(false)
     expect(isStripePayment(PAYMENT_TYPES.STRIPE)).toBe(true)
   })
+
+  test('reports the settlement currency of the hosted gateways', () => {
+    expect(getPaymentCurrency(PAYMENT_TYPES.KPAY)).toBe('HKD')
+    expect(getPaymentCurrency(PAYMENT_TYPES.STPAY)).toBe('RUB')
+    expect(getPaymentCurrency('kpay_tokens')).toBe('HKD')
+    expect(getPaymentCurrency('stpay_sbp_tokens')).toBe('RUB')
+    expect(getPaymentCurrency(PAYMENT_TYPES.ALIPAY)).toBeUndefined()
+  })
 })
 
 describe('payment dispatch', () => {
+  const processors = (calls: string[]) => ({
+    regular: async () => {
+      calls.push('regular')
+      return false
+    },
+    waffo: async (amount: number, index: number) => {
+      calls.push(`waffo:${amount}:${index}`)
+      return true
+    },
+    waffoPancake: async () => {
+      calls.push('pancake')
+      return false
+    },
+    kpay: async (amount: number) => {
+      calls.push(`kpay:${amount}`)
+      return true
+    },
+    stpay: async (amount: number) => {
+      calls.push(`stpay:${amount}`)
+      return true
+    },
+  })
+
   test('keeps the selected Waffo method index through confirmation', async () => {
     const calls: string[] = []
     const success = await dispatchSelectedPayment(
       { name: 'Waffo Card', type: PAYMENT_TYPES.WAFFO },
       120,
       3,
-      {
-        regular: async () => {
-          calls.push('regular')
-          return false
-        },
-        waffo: async (amount, index) => {
-          calls.push(`waffo:${amount}:${index}`)
-          return true
-        },
-        waffoPancake: async () => {
-          calls.push('pancake')
-          return false
-        },
-      }
+      processors(calls)
     )
 
     expect(success).toBe(true)
@@ -64,22 +83,41 @@ describe('payment dispatch', () => {
   })
 
   test('does not create a Waffo order without a selected method index', async () => {
-    let called = false
+    const calls: string[] = []
     const success = await dispatchSelectedPayment(
       { name: 'Waffo Card', type: PAYMENT_TYPES.WAFFO },
       120,
       null,
-      {
-        regular: async () => false,
-        waffo: async () => {
-          called = true
-          return true
-        },
-        waffoPancake: async () => false,
-      }
+      processors(calls)
     )
 
     expect(success).toBe(false)
-    expect(called).toBe(false)
+    expect(calls).toEqual([])
+  })
+
+  test('sends KPay to its hosted checkout instead of the epay form', async () => {
+    const calls: string[] = []
+    const success = await dispatchSelectedPayment(
+      { name: 'KPay', type: PAYMENT_TYPES.KPAY },
+      120,
+      null,
+      processors(calls)
+    )
+
+    expect(success).toBe(true)
+    expect(calls).toEqual(['kpay:120'])
+  })
+
+  test('sends Russian SBP to its own checkout instead of the epay form', async () => {
+    const calls: string[] = []
+    const success = await dispatchSelectedPayment(
+      { name: 'Russian SBP', type: PAYMENT_TYPES.STPAY },
+      120,
+      null,
+      processors(calls)
+    )
+
+    expect(success).toBe(true)
+    expect(calls).toEqual(['stpay:120'])
   })
 })

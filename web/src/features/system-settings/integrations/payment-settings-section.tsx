@@ -63,7 +63,15 @@ import { safeNumberFieldProps } from '../utils/numeric-field'
 import { AmountDiscountVisualEditor } from './amount-discount-visual-editor'
 import { AmountOptionsVisualEditor } from './amount-options-visual-editor'
 import { CreemProductsVisualEditor } from './creem-products-visual-editor'
+import {
+  KpaySettingsSection,
+  type KpaySettingsValues,
+} from './kpay-settings-section'
 import { PaymentMethodsVisualEditor } from './payment-methods-visual-editor'
+import {
+  StpaySettingsSection,
+  type StpaySettingsValues,
+} from './stpay-settings-section'
 import {
   formatJsonForEditor,
   getJsonError,
@@ -178,13 +186,56 @@ const paymentSchema = z.object({
   WaffoPancakeMerchantID: z.string(),
   WaffoPancakePrivateKey: z.string(),
   WaffoPancakeReturnURL: z.string(),
+  // KPay and Russian SBP are validated field by field on the server, which
+  // reports the exact reason, so the schema only fixes the value types here.
+  KpayEnabled: z.boolean(),
+  KpaySandbox: z.boolean(),
+  KpayMerchantCode: z.string(),
+  KpayAppID: z.string(),
+  KpayPrivateKey: z.string(),
+  KpayPlatformPublicKey: z.string(),
+  KpaySandboxMerchantCode: z.string(),
+  KpaySandboxAppID: z.string(),
+  KpaySandboxPrivateKey: z.string(),
+  KpaySandboxPlatformPublicKey: z.string(),
+  KpayUnitPrice: z.coerce.number(),
+  KpayMinTopUp: z.coerce.number(),
+  KpayNotifyURL: z.string(),
+  KpayReturnURL: z.string(),
+  KpayLanguage: z.string(),
+  KpayCheckoutMode: z.string(),
+  KpayMerchantIcon: z.string(),
+  KpayOrderRemark: z.string(),
+  KpayPayMethodOrder: z.string(),
+  KpayPageFeatureControls: z.string(),
+  KpayRateLimitNum: z.coerce.number(),
+  KpayRateLimitDuration: z.coerce.number(),
+  KpayReconcileInterval: z.coerce.number(),
+  StpayEnabled: z.boolean(),
+  StpayGateway: z.string(),
+  StpayMerNo: z.string(),
+  StpayTerNo: z.string(),
+  StpayHashKey: z.string(),
+  StpayUnitPrice: z.coerce.number(),
+  StpayMinTopUp: z.coerce.number(),
+  StpayReturnURL: z.string(),
+  StpayNotifyURL: z.string(),
+  StpaySiteURL: z.string(),
+  StpayCardType: z.string(),
+  StpayRateLimitNum: z.coerce.number(),
+  StpayRateLimitDuration: z.coerce.number(),
+  StpayRequireQueryConfirm: z.boolean(),
+  StpayNotifyIPAllowlist: z.string(),
 })
 
 type PaymentFormValues = z.infer<typeof paymentSchema>
 type WaffoFormFieldValues = Omit<WaffoSettingsValues, 'WaffoPayMethods'>
 type PaymentBaseFormValues = Omit<
   PaymentFormValues,
-  keyof WaffoFormFieldValues | keyof WaffoPancakeSettingsValues
+  | keyof WaffoFormFieldValues
+  | keyof WaffoPancakeSettingsValues
+  | keyof KpaySettingsValues
+  | keyof StpaySettingsValues
 >
 
 const CURRENT_COMPLIANCE_TERMS_VERSION = 'v1'
@@ -203,6 +254,8 @@ type PaymentSettingsSectionProps = {
   waffoPancakeDefaultValues: WaffoPancakeSettingsValues
   waffoPancakeProvisionedStoreID?: string
   waffoPancakeProvisionedProductID?: string
+  kpayDefaultValues: KpaySettingsValues
+  stpayDefaultValues: StpaySettingsValues
   complianceDefaults: PaymentComplianceDefaults
 }
 
@@ -221,6 +274,8 @@ export function PaymentSettingsSection({
   waffoPancakeDefaultValues,
   waffoPancakeProvisionedStoreID,
   waffoPancakeProvisionedProductID,
+  kpayDefaultValues,
+  stpayDefaultValues,
   complianceDefaults,
 }: PaymentSettingsSectionProps) {
   const { t } = useTranslation()
@@ -231,8 +286,16 @@ export function PaymentSettingsSection({
       ...defaultValues,
       ...waffoDefaultValues,
       ...waffoPancakeDefaultValues,
+      ...kpayDefaultValues,
+      ...stpayDefaultValues,
     }),
-    [defaultValues, waffoDefaultValues, waffoPancakeDefaultValues]
+    [
+      defaultValues,
+      waffoDefaultValues,
+      waffoPancakeDefaultValues,
+      kpayDefaultValues,
+      stpayDefaultValues,
+    ]
   )
   const initialRef = React.useRef(initialFormValues)
   const defaultsSignature = React.useMemo(
@@ -703,6 +766,30 @@ export function PaymentSettingsSection({
       updates.push({ key: 'WaffoPayMethods', value: sanitized.WaffoPayMethods })
     }
 
+    const gatewayKeys = Object.keys({
+      ...kpayDefaultValues,
+      ...stpayDefaultValues,
+    }) as Array<keyof (KpaySettingsValues & StpaySettingsValues)>
+    gatewayKeys.sort(
+      (first, second) =>
+        Number(first.endsWith('Enabled')) - Number(second.endsWith('Enabled'))
+    )
+    for (const key of gatewayKeys) {
+      const currentValue = values[key]
+      const initialValue = initialRef.current[key]
+      const value =
+        typeof currentValue === 'string' ? currentValue.trim() : currentValue
+      const previous =
+        typeof initialValue === 'string' ? initialValue.trim() : initialValue
+      if (value === previous) continue
+      const isSecret =
+        key.endsWith('PrivateKey') ||
+        key.endsWith('PublicKey') ||
+        key === 'StpayHashKey'
+      if (isSecret && value === '') continue
+      updates.push({ key, value })
+    }
+
     const hasWaffoPancakeChanges =
       sanitized.WaffoPancakeMerchantID !== initial.WaffoPancakeMerchantID ||
       sanitized.WaffoPancakePrivateKey.length > 0 ||
@@ -882,13 +969,15 @@ export function PaymentSettingsSection({
           />
           <Tabs defaultValue='general' className='min-w-0'>
             <div className='overflow-x-auto pb-1'>
-              <TabsList className='grid min-w-[44rem] grid-cols-6'>
+              <TabsList className='grid min-w-[56rem] grid-cols-8'>
                 <TabsTrigger value='general'>{t('General')}</TabsTrigger>
                 <TabsTrigger value='epay'>Epay</TabsTrigger>
                 <TabsTrigger value='stripe'>{t('Stripe')}</TabsTrigger>
                 <TabsTrigger value='creem'>Creem</TabsTrigger>
                 <TabsTrigger value='waffo-pancake'>Waffo Pancake</TabsTrigger>
                 <TabsTrigger value='waffo'>Waffo</TabsTrigger>
+                <TabsTrigger value='kpay'>KPay</TabsTrigger>
+                <TabsTrigger value='stpay'>{t('Russian SBP')}</TabsTrigger>
               </TabsList>
             </div>
 
@@ -1629,6 +1718,18 @@ export function PaymentSettingsSection({
                 onValueChange={setWaffoValue}
                 payMethods={waffoPayMethods}
                 onPayMethodsChange={setWaffoPayMethods}
+              />
+            </TabsContent>
+            <TabsContent value='kpay' className={paymentTabContentClassName}>
+              <KpaySettingsSection
+                values={currentFormValues}
+                onValueChange={setPaymentValue}
+              />
+            </TabsContent>
+            <TabsContent value='stpay' className={paymentTabContentClassName}>
+              <StpaySettingsSection
+                values={currentFormValues}
+                onValueChange={setPaymentValue}
               />
             </TabsContent>
           </Tabs>

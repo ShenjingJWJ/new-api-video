@@ -27,6 +27,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import { Separator } from '@/components/ui/separator'
+import { useKpayPayment, useStpayPayment } from '@/features/wallet/hooks'
+import { formatPaymentAmount } from '@/features/wallet/lib'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { formatQuota } from '@/lib/format'
 import { handleServerError } from '@/lib/handle-server-error'
@@ -55,6 +57,10 @@ interface Props {
   enableCreem?: boolean
   enableWaffoPancake?: boolean
   enableOnlineTopUp?: boolean
+  enableKpay?: boolean
+  kpayUnitPrice?: number
+  enableStpay?: boolean
+  stpayUnitPrice?: number
   epayMethods?: PaymentMethod[]
   purchaseLimit?: number
   purchaseCount?: number
@@ -67,6 +73,8 @@ export function SubscriptionPurchaseDialog(props: Props) {
   const { currency } = useSystemConfig()
   const [paying, setPaying] = useState(false)
   const [selectedEpayMethod, setSelectedEpayMethod] = useState('')
+  const { processing: kpayPaying, processKpayPayment } = useKpayPayment()
+  const { processing: stpayPaying, processStpayPayment } = useStpayPayment()
 
   useEffect(() => {
     if (props.open && props.epayMethods && props.epayMethods.length > 0) {
@@ -85,7 +93,10 @@ export function SubscriptionPurchaseDialog(props: Props) {
     props.enableWaffoPancake && !!plan.waffo_pancake_product_id
   const hasEpay =
     props.enableOnlineTopUp && (props.epayMethods || []).length > 0
-  const hasAnyPayment = hasStripe || hasCreem || hasWaffoPancake || hasEpay
+  const hasKpay = !!props.enableKpay && (props.kpayUnitPrice || 0) > 0
+  const hasStpay = !!props.enableStpay && (props.stpayUnitPrice || 0) > 0
+  const hasAnyPayment =
+    hasStripe || hasCreem || hasWaffoPancake || hasEpay || hasKpay || hasStpay
   const totalAmount = Number(plan.total_amount || 0)
   const price = Number(plan.price_amount || 0).toFixed(2)
   const quotaPerUnit =
@@ -199,6 +210,20 @@ export function SubscriptionPurchaseDialog(props: Props) {
       handleServerError(error, t('Payment request failed'))
     } finally {
       setPaying(false)
+    }
+  }
+
+  const handlePayKpay = async () => {
+    const success = await processKpayPayment({ plan_id: plan.id })
+    if (success) {
+      props.onOpenChange(false)
+    }
+  }
+
+  const handlePayStpay = async () => {
+    const success = await processStpayPayment({ plan_id: plan.id })
+    if (success) {
+      props.onOpenChange(false)
     }
   }
 
@@ -337,7 +362,11 @@ export function SubscriptionPurchaseDialog(props: Props) {
             <p className='text-muted-foreground text-xs'>
               {t('Select payment method')}
             </p>
-            {(hasStripe || hasCreem || hasWaffoPancake) && (
+            {(hasStripe ||
+              hasCreem ||
+              hasWaffoPancake ||
+              hasKpay ||
+              hasStpay) && (
               <div className='grid grid-cols-2 gap-2 sm:flex'>
                 {hasStripe && (
                   <Button
@@ -367,6 +396,34 @@ export function SubscriptionPurchaseDialog(props: Props) {
                     disabled={paying || limitReached}
                   >
                     Waffo Pancake
+                  </Button>
+                )}
+                {hasKpay && (
+                  <Button
+                    variant='outline'
+                    className='flex-1'
+                    onClick={handlePayKpay}
+                    disabled={paying || kpayPaying || limitReached}
+                  >
+                    {`KPay · ${formatPaymentAmount(
+                      Number(plan.price_amount || 0) *
+                        (props.kpayUnitPrice || 0),
+                      'HKD'
+                    )}`}
+                  </Button>
+                )}
+                {hasStpay && (
+                  <Button
+                    variant='outline'
+                    className='flex-1'
+                    onClick={handlePayStpay}
+                    disabled={paying || stpayPaying || limitReached}
+                  >
+                    {`${t('Russian SBP')} · ${formatPaymentAmount(
+                      Number(plan.price_amount || 0) *
+                        (props.stpayUnitPrice || 0),
+                      'RUB'
+                    )}`}
                   </Button>
                 )}
               </div>

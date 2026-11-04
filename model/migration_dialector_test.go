@@ -1,8 +1,11 @@
 package model
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -55,6 +58,270 @@ type migrationDecimalV2 struct {
 type migrationDecimalV3 struct {
 	ID    int     `gorm:"primaryKey"`
 	Price float64 `gorm:"type:decimal(12,6);not null;default:1.25"`
+}
+
+type paymentGatewayReleasedTopUp struct {
+	Id              int     `json:"id"`
+	UserId          int     `json:"user_id" gorm:"index"`
+	Amount          int64   `json:"amount"`
+	Money           float64 `json:"money"`
+	TradeNo         string  `json:"trade_no" gorm:"unique;type:varchar(255);index"`
+	PaymentMethod   string  `json:"payment_method" gorm:"type:varchar(50)"`
+	PaymentProvider string  `json:"payment_provider" gorm:"type:varchar(50);default:''"`
+	CreateTime      int64   `json:"create_time"`
+	CompleteTime    int64   `json:"complete_time"`
+	Status          string  `json:"status"`
+}
+
+func (paymentGatewayReleasedTopUp) TableName() string { return "top_ups" }
+
+type paymentGatewayReleasedSubscriptionOrder struct {
+	Id     int     `json:"id"`
+	UserId int     `json:"user_id" gorm:"index"`
+	PlanId int     `json:"plan_id" gorm:"index"`
+	Money  float64 `json:"money"`
+
+	TradeNo         string `json:"trade_no" gorm:"unique;type:varchar(255);index"`
+	PaymentMethod   string `json:"payment_method" gorm:"type:varchar(50)"`
+	PaymentProvider string `json:"payment_provider" gorm:"type:varchar(50);default:''"`
+	Status          string `json:"status"`
+	CreateTime      int64  `json:"create_time"`
+	CompleteTime    int64  `json:"complete_time"`
+
+	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
+}
+
+func (paymentGatewayReleasedSubscriptionOrder) TableName() string { return "subscription_orders" }
+
+func TestPaymentGatewayOfficialDatabaseMigration(t *testing.T) {
+	sourcePath := os.Getenv("PAYMENT_GATEWAY_OFFICIAL_DB")
+	if sourcePath == "" {
+		t.Skip("PAYMENT_GATEWAY_OFFICIAL_DB is not configured")
+	}
+	source, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	originalHash := sha256.Sum256(source)
+	originalDB, originalLogDB := DB, LOG_DB
+	originalMainType, originalLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	originalPath := common.SQLitePath
+	originalDeadline := legacyAccessTokenRetireAt.Load()
+	common.SQLitePath = filepath.Join(t.TempDir(), "official-copy.db")
+	require.NoError(t, os.WriteFile(common.SQLitePath, source, 0600))
+	t.Setenv("PAYMENT_GATEWAY_TEST_DSN", "local")
+	db, databaseType, err := chooseDB("PAYMENT_GATEWAY_TEST_DSN", false)
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, sqlDB.Close())
+		DB, LOG_DB, common.SQLitePath = originalDB, originalLogDB, originalPath
+		common.SetDatabaseTypes(originalMainType, originalLogType)
+		initCol()
+		legacyAccessTokenRetireAt.Store(originalDeadline)
+	})
+	DB, LOG_DB = db, db
+	common.SetDatabaseTypes(databaseType, databaseType)
+	initCol()
+	tables, err := db.Migrator().GetTables()
+	require.NoError(t, err)
+	counts := make(map[string]int64, len(tables))
+	for _, table := range tables {
+		var count int64
+		require.NoError(t, db.Table(table).Count(&count).Error)
+		counts[table] = count
+	}
+	var originalOptions []Option
+	require.NoError(t, db.Select(commonKeyCol, "value").Order(commonKeyCol).Find(&originalOptions).Error)
+	optionKeys := make([]string, 0, len(originalOptions))
+	for _, option := range originalOptions {
+		optionKeys = append(optionKeys, option.Key)
+	}
+	originalOptionsJSON, err := common.Marshal(originalOptions)
+	require.NoError(t, err)
+	paymentSnapshots := make(map[string]struct {
+		columns []string
+		hash    [32]byte
+	})
+	for _, table := range []string{"top_ups", "subscription_orders"} {
+		columns, err := db.Table(table).Migrator().ColumnTypes(table)
+		require.NoError(t, err)
+		projection := make([]string, 0, len(columns))
+		for _, column := range columns {
+			projection = append(projection, column.Name())
+		}
+		var rows []map[string]any
+		require.NoError(t, db.Table(table).Select(projection).Order("id").Find(&rows).Error)
+		encoded, err := common.Marshal(rows)
+		require.NoError(t, err)
+		paymentSnapshots[table] = struct {
+			columns []string
+			hash    [32]byte
+		}{projection, sha256.Sum256(encoded)}
+	}
+	var originalTopups []TopUp
+	var originalOrders []SubscriptionOrder
+	var originalWallets []struct {
+		Id        int
+		Quota     int
+		UsedQuota int
+	}
+	require.NoError(t, db.Order("id").Find(&originalTopups).Error)
+	require.NoError(t, db.Order("id").Find(&originalOrders).Error)
+	require.NoError(t, db.Table("users").Select("id, quota, used_quota").Order("id").Find(&originalWallets).Error)
+	originalTopupsJSON, err := common.Marshal(originalTopups)
+	require.NoError(t, err)
+	originalOrdersJSON, err := common.Marshal(originalOrders)
+	require.NoError(t, err)
+	originalWalletsJSON, err := common.Marshal(originalWallets)
+	require.NoError(t, err)
+	require.NoError(t, migrateDB())
+	require.NoError(t, migrateDB())
+	for table, expected := range counts {
+		if table == "options" && !slices.Contains(optionKeys, legacyAccessTokenRetireAtKey) {
+			expected++
+		}
+		var count int64
+		require.NoError(t, db.Table(table).Count(&count).Error)
+		assert.Equal(t, expected, count, table)
+	}
+	var preservedOptions []Option
+	require.NoError(t, db.Select(commonKeyCol, "value").Where(commonKeyCol+" IN ?", optionKeys).Order(commonKeyCol).Find(&preservedOptions).Error)
+	preservedOptionsJSON, err := common.Marshal(preservedOptions)
+	require.NoError(t, err)
+	assert.Equal(t, sha256.Sum256(originalOptionsJSON), sha256.Sum256(preservedOptionsJSON), "existing settings changed")
+	for table, snapshot := range paymentSnapshots {
+		var rows []map[string]any
+		require.NoError(t, db.Table(table).Select(snapshot.columns).Order("id").Find(&rows).Error)
+		encoded, err := common.Marshal(rows)
+		require.NoError(t, err)
+		assert.Equal(t, snapshot.hash, sha256.Sum256(encoded), "stored payment fields changed: %s", table)
+	}
+	var topups []TopUp
+	var orders []SubscriptionOrder
+	var wallets []struct {
+		Id        int
+		Quota     int
+		UsedQuota int
+	}
+	require.NoError(t, db.Order("id").Find(&topups).Error)
+	require.NoError(t, db.Order("id").Find(&orders).Error)
+	require.NoError(t, db.Table("users").Select("id, quota, used_quota").Order("id").Find(&wallets).Error)
+	topupsJSON, err := common.Marshal(topups)
+	require.NoError(t, err)
+	ordersJSON, err := common.Marshal(orders)
+	require.NoError(t, err)
+	walletsJSON, err := common.Marshal(wallets)
+	require.NoError(t, err)
+	assert.Equal(t, sha256.Sum256(originalTopupsJSON), sha256.Sum256(topupsJSON), "top-up records changed")
+	assert.Equal(t, sha256.Sum256(originalOrdersJSON), sha256.Sum256(ordersJSON), "subscription orders changed")
+	assert.Equal(t, sha256.Sum256(originalWalletsJSON), sha256.Sum256(walletsJSON), "wallet balances changed")
+	sourceAfter, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	assert.Equal(t, originalHash, sha256.Sum256(sourceAfter), "source database was modified")
+	t.Logf("copied official.db: %d users, %d top-ups and %d subscription orders preserved after two migrations", len(wallets), len(topups), len(orders))
+}
+
+func TestPaymentGatewayDatabaseMatrix(t *testing.T) {
+	originalDB, originalLogDB := DB, LOG_DB
+	originalMainType, originalLogType := common.MainDatabaseType(), common.LogDatabaseType()
+	originalDeadline := legacyAccessTokenRetireAt.Load()
+	t.Cleanup(func() {
+		DB, LOG_DB = originalDB, originalLogDB
+		common.SetDatabaseTypes(originalMainType, originalLogType)
+		initCol()
+		legacyAccessTokenRetireAt.Store(originalDeadline)
+	})
+	for _, testCase := range []struct {
+		name         string
+		env          string
+		databaseType common.DatabaseType
+	}{
+		{"sqlite", "", common.DatabaseTypeSQLite},
+		{"mysql", "PAYMENT_GATEWAY_MYSQL_DSN", common.DatabaseTypeMySQL},
+		{"postgres", "PAYMENT_GATEWAY_POSTGRES_DSN", common.DatabaseTypePostgreSQL},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, upgrade := range []bool{false, true} {
+				t.Run(fmt.Sprintf("upgrade=%t", upgrade), func(t *testing.T) {
+					dsn := os.Getenv(testCase.env)
+					if testCase.name == "sqlite" {
+						originalPath := common.SQLitePath
+						common.SQLitePath = filepath.Join(t.TempDir(), "payments.db")
+						t.Cleanup(func() { common.SQLitePath = originalPath })
+						dsn = "local"
+					} else if dsn == "" {
+						t.Skip(testCase.env + " is not configured")
+					}
+					t.Setenv("PAYMENT_GATEWAY_TEST_DSN", dsn)
+					db, databaseType, err := chooseDB("PAYMENT_GATEWAY_TEST_DSN", false)
+					require.NoError(t, err)
+					require.Equal(t, testCase.databaseType, databaseType)
+					sqlDB, err := db.DB()
+					require.NoError(t, err)
+					t.Cleanup(func() { _ = sqlDB.Close() })
+					sqlDB.SetMaxOpenConns(1)
+					versionQuery := "SELECT sqlite_version()"
+					if testCase.name != "sqlite" {
+						nameQuery := "SELECT DATABASE()"
+						if testCase.name == "postgres" {
+							nameQuery = "SELECT current_database()"
+						}
+						var name string
+						require.NoError(t, db.Raw(nameQuery).Scan(&name).Error)
+						require.Equal(t, "newapi_payment_verify", name, "matrix must use an isolated verification database")
+						versionQuery = "SELECT VERSION()"
+					}
+					var version string
+					require.NoError(t, db.Raw(versionQuery).Scan(&version).Error)
+					t.Logf("database version: %s; upgrade baseline: v1.0.0-rc.47", version)
+					DB, LOG_DB = db, db
+					common.SetDatabaseTypes(databaseType, databaseType)
+					initCol()
+					tables, err := db.Migrator().GetTables()
+					require.NoError(t, err)
+					for _, table := range tables {
+						require.NoError(t, db.Migrator().DropTable(table))
+					}
+					if upgrade {
+						require.NoError(t, db.AutoMigrate(&paymentGatewayReleasedTopUp{}, &paymentGatewayReleasedSubscriptionOrder{}))
+						require.NoError(t, db.Create(&paymentGatewayReleasedTopUp{Id: 1, UserId: 1, Amount: 2, Money: 2.34, TradeNo: "released-topup", PaymentProvider: PaymentProviderEpay, PaymentMethod: "alipay", Status: common.TopUpStatusSuccess}).Error)
+						require.NoError(t, db.Create(&paymentGatewayReleasedSubscriptionOrder{Id: 1, UserId: 1, PlanId: 1, Money: 9.99, TradeNo: "released-subscription", PaymentProvider: PaymentProviderStripe, PaymentMethod: PaymentMethodStripe, Status: common.TopUpStatusPending, ProviderPayload: "released-payload"}).Error)
+					}
+					require.NoError(t, migrateDB())
+					recorder := &migrationSQLRecorder{}
+					DB = db.Session(&gorm.Session{Logger: recorder})
+					require.NoError(t, migrateDB())
+					for _, statement := range recorder.schemaMutations() {
+						if strings.Contains(statement, "top_ups") || strings.Contains(statement, "subscription_orders") {
+							assert.Fail(t, "payment schema changed on repeated migration", statement)
+						}
+					}
+					if upgrade {
+						var topup TopUp
+						require.NoError(t, db.First(&topup, 1).Error)
+						assert.Equal(t, "released-topup", topup.TradeNo)
+						assert.EqualValues(t, 2, topup.Amount)
+						assert.Equal(t, 2.34, topup.Money)
+						assert.Equal(t, common.TopUpStatusSuccess, topup.Status)
+						assert.Equal(t, PaymentProviderEpay, topup.PaymentProvider)
+						var subscription SubscriptionOrder
+						require.NoError(t, db.First(&subscription, 1).Error)
+						assert.Equal(t, "released-subscription", subscription.TradeNo)
+						assert.Equal(t, 9.99, subscription.Money)
+						assert.Equal(t, "released-payload", subscription.ProviderPayload)
+						assert.Error(t, db.Create(&TopUp{TradeNo: topup.TradeNo}).Error)
+						assert.Error(t, db.Create(&SubscriptionOrder{TradeNo: subscription.TradeNo}).Error)
+						require.NoError(t, db.Delete(&topup).Error)
+						require.NoError(t, db.Delete(&subscription).Error)
+					}
+					DB = db
+					t.Run("topup settlement", TestPaymentGatewayTopUpSettlement)
+					t.Run("unsafe credit", TestPaymentGatewayTopUpRejectsUnsafeCredit)
+					t.Run("subscription settlement", TestPaymentGatewaySubscriptionCompletion)
+				})
+			}
+		})
+	}
 }
 
 func TestMigrationSchemaStability(t *testing.T) {
